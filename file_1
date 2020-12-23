@@ -1,0 +1,194 @@
+#include<iostream> //has cout and cin function
+#include<iomanip> //set funcitons
+#include<pthread.h> //linux function used in threading programs
+#include<stdlib.h> //standard library
+#include<stdio.h> //tells the compiler to put the standard input of stdio
+#include<string> //string functions
+#include<unistd.h> //provides access to the POSIX opereating system
+#include<queue> //standard template library
+#include<sstream> //standard streaming library
+
+using namespace std;
+
+static pthread_mutex_t mylock; //mutex protects shared data from being accessed simultaneously
+static pthread_cond_t ok = PTHREAD_COND_INITIALIZER; //condition variable
+int numberOfCarsInTunnel = 0;
+int numberOfCarsWaiting = 0;
+
+struct carVal {
+
+	int carNum; //car number
+	char direction; //direction
+	int travelTime; //time taken for the car to pass through the tunnel
+
+};
+
+void* tunnel(void* arg); //tunnel thread
+void* car(void* arg); //car thread
+
+static bool completed = false;
+
+static char traffic;
+
+static int maxNumCarsInTunnel; //maximum number of cars that can be in the tunnel
+static int Southbound = 0; //number of cars going Southbound
+static int Northbound = 0; //number of cars going northbound
+static int waiting = 0; //number of cars waiting to enter the tunnel
+static int inTunnel = 0; //number of cars in the tunnel
+
+int main() {
+
+	pthread_cond_t cold = PTHREAD_COND_INITIALIZER; //conditional variable
+
+	int totalCars = 0;
+	pthread_t cartid[128];
+	pthread_mutex_init(&mylock, NULL);
+
+	string word;
+	cin >> word; //input the text
+	maxNumCarsInTunnel = stoi(word);  //stoi means strings
+
+	pthread_t tunnelID; //tunnel ID is the name of the thread
+	pthread_create(&tunnelID, NULL, tunnel, NULL);
+	while (cin >> word) //while loop and input
+	{
+		sleep(stoi(word)); //sleep function's first appearance
+		cin >> word;
+		carVal* temp = new carVal;
+		temp->direction = word[0]; //pointer that gives direction as to where the car is going in the tunnel 
+		cin >> word;
+		temp->travelTime = stoi(word); //pointer that gives the travel time of the car passing through the tunnel going in a certain direction
+		temp->carNum = totalCars + 1; //car numbers
+		pthread_t tid; //tid means 
+		pthread_create(&tid, NULL, car, (void*)temp);
+		cartid[totalCars] = tid;
+		totalCars++; //total cars increment
+	}
+	for (int i = 0; i < totalCars; i++) //for loop for total cars
+		pthread_join(cartid[i], NULL);
+
+	completed = true; //bool
+
+	cout << Northbound << "Car(s) going northbound are at the tunnel.\n\n";
+	cout << Southbound << "Car(s) going southbound are at the tunnel.\n\n";
+	cout << waiting << "Car(s) are waiting.\n\n";
+
+}
+
+void* tunnel(void* arg) //pointer //cars in the tunnel
+{
+	//infinite loop
+
+	while (1) {
+
+		//northbound tunnel open
+
+		if (completed)
+			pthread_exit(NULL);
+		pthread_mutex_lock(&mylock);
+		traffic = 'N';
+		cout << "The tunnel is open and is going northbound!\n\n";
+		pthread_cond_broadcast(&ok);
+		pthread_mutex_unlock(&mylock);
+		sleep(3);
+
+		//Closed going northbound
+
+		if (completed)
+			pthread_exit(NULL);
+		pthread_mutex_lock(&mylock);
+		traffic = 'C';
+		cout << "The northbound traffic is now closed to all traffic!" << endl << endl; //northbound tunnel closed
+		pthread_mutex_unlock(&mylock);
+		sleep(3);
+
+		//Open going southbound
+
+		if (completed)
+			pthread_exit(NULL);
+		pthread_mutex_lock(&mylock);
+		traffic = 'S';
+		cout << "The tunnel is open and is going southbound!\n\n";
+		pthread_cond_broadcast(&ok);
+		sleep(3);
+
+		//Unavailable going southbound
+
+		if (completed)
+			pthread_mutex_lock(&mylock);
+		traffic = 'U';
+		cout << "The southbound tunnel is now closed to all traffic!" << endl << endl; //southbound tunnel closed
+		pthread_mutex_unlock(&mylock);
+		sleep(3);
+	}
+}
+
+//car thread
+
+void* car(void* arg)
+{
+	carVal* acar;
+	acar = (struct carVal*) arg;
+	int carNo = acar->carNum;
+	char bound = acar->direction;//direction of traffic
+	bool waiting = false; //wait/delay //bool
+	int travelTime = acar->travelTime; //time should be measured in seconds
+
+	if (bound == 'N') {
+
+		Northbound++;
+		pthread_mutex_lock(&mylock);
+		cout << "Car#" << carNo << "going Northbound arrives at the tunnel." << endl << endl;
+		while (traffic != 'N') {
+			pthread_cond_wait(&ok, &mylock);
+			if (inTunnel >= maxNumCarsInTunnel) {
+				waiting = true;
+				pthread_cond_wait(&ok, &mylock);
+			}
+		}
+		inTunnel++;
+		cout << "Car#" << carNo << " going Northbound enters the tunnel.\n\n";
+		pthread_mutex_unlock(&mylock);
+		sleep(travelTime);
+		pthread_mutex_lock(&mylock);
+		inTunnel--;
+		pthread_cond_broadcast(&ok);
+		cout << "Car#" << carNo << " going Northbound exits the tunnel\n\n";
+		if (waiting)
+			waiting++;
+		pthread_mutex_unlock(&mylock);
+	}
+	else {
+		Southbound++;
+		pthread_mutex_lock(&mylock);
+		cout << "Car#" << carNo << " going Southbound arrives at the tunnel." << endl << endl;
+		while (traffic != 'S')
+		{
+			pthread_cond_wait(&ok, &mylock);
+			if (inTunnel >= maxNumCarsInTunnel) {
+				waiting = true;
+				pthread_cond_wait(&ok, &mylock);
+
+			}
+		}
+		while (inTunnel >= maxNumCarsInTunnel)
+		{
+			waiting = true;
+			pthread_cond_wait(&ok, &mylock);
+			if (traffic != 'S')
+				pthread_cond_wait(&ok, &mylock);
+		}
+		inTunnel++;
+		cout << "Car #" << carNo << " going Southbound enters the tunnel.\n\n";
+		pthread_mutex_unlock(&mylock);
+		sleep(travelTime);
+		pthread_mutex_lock(&mylock);
+		inTunnel--;
+		pthread_cond_broadcast(&ok);
+		cout << "Car #" << carNo << " going to Southbound exits the tunnel.\n\n";
+		if (waiting)
+			waiting++;
+		pthread_mutex_unlock(&mylock);
+	}
+}
+//The following code was created to the best of my ability. Credit for parts of my code goes to Imran Sindhi, Pavan Paluri, Shehzad Yousaf, Natalie Hong, and Juan Pablo Reyes-Altamirano
